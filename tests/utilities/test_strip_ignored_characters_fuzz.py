@@ -6,7 +6,7 @@ from graphql.error import GraphQLSyntaxError
 from graphql.language import Lexer, Source, TokenKind
 from graphql.utilities import strip_ignored_characters
 
-from ..utils import dedent, gen_fuzz_strings
+from ..utils import dedent, gen_fuzz_strings, timeout_factor
 
 
 def lex_value(s: str) -> Optional[str]:
@@ -18,7 +18,159 @@ def lex_value(s: str) -> Optional[str]:
 
 def describe_strip_ignored_characters():
     @mark.slow
-    @mark.timeout(20)
+    @mark.timeout(10)
+    def strips_documents_with_random_combination_of_ignored_characters():
+        for ignored in ignored_tokens:
+            ExpectStripped(ignored).to_equal("")
+
+            for another_ignored in ignored_tokens:
+                ExpectStripped(ignored + another_ignored).to_equal("")
+
+        ExpectStripped("".join(ignored_tokens)).to_equal("")
+
+    @mark.slow
+    @mark.timeout(10)
+    def strips_random_leading_and_trailing_ignored_tokens():
+        for token in punctuator_tokens + non_punctuator_tokens:
+            for ignored in ignored_tokens:
+                ExpectStripped(ignored + token).to_equal(token)
+                ExpectStripped(token + ignored).to_equal(token)
+
+                for another_ignored in ignored_tokens:
+                    ExpectStripped(token + ignored + ignored).to_equal(token)
+                    ExpectStripped(ignored + another_ignored + token).to_equal(token)
+
+            ExpectStripped("".join(ignored_tokens) + token).to_equal(token)
+            ExpectStripped(token + "".join(ignored_tokens)).to_equal(token)
+
+    @mark.slow
+    @mark.timeout(10)
+    def strips_random_ignored_tokens_between_punctuator_tokens():
+        for left in punctuator_tokens:
+            for right in punctuator_tokens:
+                for ignored in ignored_tokens:
+                    ExpectStripped(left + ignored + right).to_equal(left + right)
+
+                    for another_ignored in ignored_tokens:
+                        ExpectStripped(
+                            left + ignored + another_ignored + right
+                        ).to_equal(left + right)
+
+                ExpectStripped(left + "".join(ignored_tokens) + right).to_equal(
+                    left + right
+                )
+
+    @mark.slow
+    @mark.timeout(10)
+    def strips_random_ignored_tokens_between_punctuator_and_non_punctuator_tokens():
+        for non_punctuator in non_punctuator_tokens:
+            for punctuator in punctuator_tokens:
+                for ignored in ignored_tokens:
+                    ExpectStripped(punctuator + ignored + non_punctuator).to_equal(
+                        punctuator + non_punctuator
+                    )
+
+                    for another_ignored in ignored_tokens:
+                        ExpectStripped(
+                            punctuator + ignored + another_ignored + non_punctuator
+                        ).to_equal(punctuator + non_punctuator)
+
+                ExpectStripped(
+                    punctuator + "".join(ignored_tokens) + non_punctuator
+                ).to_equal(punctuator + non_punctuator)
+
+    @mark.slow
+    @mark.timeout(10)
+    def strips_random_ignored_tokens_between_non_punctuator_and_punctuator_tokens():
+        for non_punctuator in non_punctuator_tokens:
+            for punctuator in punctuator_tokens:
+                # Special case for that is handled in the below test
+                if punctuator == "...":
+                    continue
+
+                for ignored in ignored_tokens:
+                    ExpectStripped(non_punctuator + ignored + punctuator).to_equal(
+                        non_punctuator + punctuator
+                    )
+
+                    for another_ignored in ignored_tokens:
+                        ExpectStripped(
+                            non_punctuator + ignored + another_ignored + punctuator
+                        ).to_equal(non_punctuator + punctuator)
+
+                ExpectStripped(
+                    non_punctuator + "".join(ignored_tokens) + punctuator
+                ).to_equal(non_punctuator + punctuator)
+
+    @mark.slow
+    @mark.timeout(10)
+    def replace_random_ignored_tokens_between_non_punctuator_and_spread_with_space():
+        for non_punctuator in non_punctuator_tokens:
+            for ignored in ignored_tokens:
+                ExpectStripped(non_punctuator + ignored + "...").to_equal(
+                    non_punctuator + " ..."
+                )
+
+                for another_ignored in ignored_tokens:
+                    ExpectStripped(
+                        non_punctuator + ignored + another_ignored + " ..."
+                    ).to_equal(non_punctuator + " ...")
+
+            ExpectStripped(non_punctuator + "".join(ignored_tokens) + "...").to_equal(
+                non_punctuator + " ..."
+            )
+
+    @mark.slow
+    @mark.timeout(10)
+    def replace_random_ignored_tokens_between_non_punctuator_tokens_with_space():
+        for left in non_punctuator_tokens:
+            for right in non_punctuator_tokens:
+                for ignored in ignored_tokens:
+                    ExpectStripped(left + ignored + right).to_equal(left + " " + right)
+
+                    for another_ignored in ignored_tokens:
+                        ExpectStripped(
+                            left + ignored + another_ignored + right
+                        ).to_equal(left + " " + right)
+
+                ExpectStripped(left + "".join(ignored_tokens) + right).to_equal(
+                    left + " " + right
+                )
+
+    @mark.slow
+    @mark.timeout(10)
+    def does_not_strip_random_ignored_tokens_embedded_in_the_string():
+        for ignored in ignored_tokens:
+            ExpectStripped(dumps(ignored)).to_stay_the_same()
+
+            for another_ignored in ignored_tokens:
+                ExpectStripped(dumps(ignored + another_ignored)).to_stay_the_same()
+
+        ExpectStripped(dumps("".join(ignored_tokens))).to_stay_the_same()
+
+    @mark.slow
+    @mark.timeout(10)
+    def does_not_strip_random_ignored_tokens_embedded_in_the_block_string():
+        ignored_tokens_without_formatting = [
+            token
+            for token in ignored_tokens
+            if token not in ["\n", "\r", "\r\n", "\t", " "]
+        ]
+
+        for ignored in ignored_tokens_without_formatting:
+            ExpectStripped('"""|' + ignored + '|"""').to_stay_the_same()
+
+            for another_ignored in ignored_tokens_without_formatting:
+                ExpectStripped(
+                    '"""|' + ignored + another_ignored + '|"""'
+                ).to_stay_the_same()
+
+        ExpectStripped(
+            '"""|' + "".join(ignored_tokens_without_formatting) + '|"""'
+        ).to_stay_the_same()
+
+    @mark.slow
+    @mark.timeout(80 * timeout_factor)
     def strips_ignored_characters_inside_random_block_strings():
         # Testing with length >7 is taking exponentially more time. However it is
         # highly recommended to test with increased limit if you make any change.
